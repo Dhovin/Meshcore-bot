@@ -429,6 +429,71 @@ def run_modules():
         for name, status in sorted(modules):
             print(f"{name:<25} | {status:<10}")
 
+def run_update():
+    print("==================================================")
+    print("              Updating MeshCore-bot               ")
+    print("==================================================")
+    
+    # 1. Run git pull
+    print("[Update] Pulling latest changes from Git repository...")
+    import subprocess
+    try:
+        # Check if we have uncommitted changes
+        status_res = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True)
+        has_changes = bool(status_res.stdout.strip())
+        
+        stashed = False
+        if has_changes:
+            print("[Update] Local uncommitted changes detected. Stashing changes...")
+            stash_res = subprocess.run(["git", "stash"], capture_output=True, text=True)
+            if stash_res.returncode == 0:
+                stashed = True
+                print("[Update] Local changes stashed successfully.")
+            else:
+                print("[Warning] Failed to stash local changes. Git pull might fail.")
+                
+        print("[Update] Executing git pull...")
+        pull_res = subprocess.run(["git", "pull"], capture_output=True, text=True)
+        print(pull_res.stdout)
+        if pull_res.stderr:
+            print(pull_res.stderr)
+            
+        if pull_res.returncode != 0:
+            print("[Error] Git pull failed.")
+            if stashed:
+                print("[Update] Restoring stashed local changes...")
+                subprocess.run(["git", "stash", "pop"])
+            return False
+            
+        if stashed:
+            print("[Update] Restoring stashed local changes...")
+            pop_res = subprocess.run(["git", "stash", "pop"], capture_output=True, text=True)
+            print(pop_res.stdout)
+            
+    except Exception as e:
+        print(f"[Error] Exception occurred during Git pull: {e}")
+        return False
+        
+    # 2. Update dependencies
+    print("\n[Update] Updating Python dependencies...")
+    try:
+        subprocess.run([sys.executable, "-m", "pip", "install", "--upgrade", "pip", "setuptools", "wheel"])
+        res = subprocess.run([sys.executable, "-m", "pip", "install", "pyserial", "bleak", "meshcore", "meshcore-cli"])
+        if res.returncode == 0:
+            print("[Update] Python dependencies updated successfully.")
+        else:
+            print("[Warning] Failed to update some Python dependencies.")
+    except Exception as e:
+        print(f"[Warning] Failed to update Python dependencies: {e}")
+        
+    # 3. Restart the daemon
+    print("\n[Update] Restarting MeshCore-bot daemon...")
+    run_restart()
+    print("\n==================================================")
+    print("MeshCore-bot updated and restarted successfully!")
+    print("==================================================")
+    return True
+
 def start_daemon_process():
     import subprocess
     script_path = os.path.abspath(__file__)
@@ -692,7 +757,7 @@ def run_cli_cmd(cmds):
         print(f"Error executing command via daemon IPC: {e}")
 
 def print_main_help():
-    print("Usage: meshbot [start|stop|restart|config|status|logs|modules|cli]")
+    print("Usage: meshbot [start|stop|restart|config|status|logs|modules|update|cli]")
     print("  start         - Start the daemon (runs systemd service on Linux, foreground on Windows)")
     print("  start-daemon  - Run the bot daemon process in the foreground (used by systemd)")
     print("  stop          - Stop the running daemon")
@@ -701,6 +766,7 @@ def print_main_help():
     print("  status        - Print bot status and connection info")
     print("  logs          - Stream/view troubleshooting logs (calls journalctl on Linux)")
     print("  modules       - List all available modules in modules/ and their status")
+    print("  update        - Pull latest changes from Git, update dependencies, and restart daemon")
     print("  cli           - Run a direct CLI command on the hardware (e.g., meshbot cli set name MyNode)")
 
 def main():
@@ -796,6 +862,15 @@ def main():
             sys.exit(1)
         run_modules()
         sys.exit(0)
+    elif cmd == "update":
+        if len(args) > 1:
+            print("Error: Command 'update' does not accept arguments.")
+            print("Usage: meshbot update")
+            print()
+            print_main_help()
+            sys.exit(1)
+        success = run_update()
+        sys.exit(0 if success else 1)
     elif cmd == "cli":
         run_cli_cmd(args[1:])
         sys.exit(0)
