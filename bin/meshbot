@@ -998,6 +998,10 @@ def run_cli_cmd(cmds):
                         print(f"{name:<30} | {t_str:<15} | {pubkey}")
                     else:
                         print(f"{name:<30} | {t_str:<15}")
+            elif cmds and cmds[0].lower() in ("channels", "chans", "get_channels") and isinstance(res, list):
+                for c in res:
+                    if c.get("channel_name") != "":
+                        print(f"{c.get('channel_idx')}: {c.get('channel_name')} [{c.get('channel_secret')}]")
             else:
                 if isinstance(res, (dict, list)):
                     print(json.dumps(res, indent=2))
