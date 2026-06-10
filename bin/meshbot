@@ -460,19 +460,19 @@ def print_cli_options():
     print("Usage: meshbot cli <command> [args...]")
     print()
     print("Available CLI commands:")
-    print("  infos, i, query, q, ver           - Print node information (firmware ver, model)")
-    print("  self_telemetry, t                 - Print own telemetry details")
+    print("  infos, -i                         - Print node information (firmware ver, model)")
+    print("  self_telemetry, -t                - Print own telemetry details")
     print("  reboot                            - Reboot the node")
     print("  clock                             - Print current device time")
     print("  clock sync                        - Sync device clock with host system time")
-    print("  msg, m <name> <message>           - Send private message to a contact by name")
-    print("  chan, ch <index_or_name> <msg>    - Send message to a channel by index or name")
-    print("  channels, chans, get_channels     - Print all channel information")
+    print("  msg, -m <name> <message>          - Send private message to a contact by name")
+    print("  chan, -ch <index_or_name> <msg>   - Send message to a channel by index or name")
+    print("  channels, -chans                  - Print all channel information")
     print("  set_channel <idx_or_nm> <nm> [k]  - Set/add channel info (nb, name, key_hex)")
     print("  remove_channel <idx_or_name>      - Remove channel (by index or name)")
     print("  set <setting> <value>             - Set setting (name, tx_power, pin, radio)")
-    print("  contacts, list, lc [-pub]         - Get persistent contact list")
-    print("  reload_contacts, rc               - Force reloading all contacts from node")
+    print("  contacts, -lc [-pub]              - Get persistent contact list")
+    print("  reload_contacts, -rc              - Force reloading all contacts from node")
 
 def run_cli_cmd(cmds):
     if not cmds:
@@ -482,6 +482,14 @@ def run_cli_cmd(cmds):
         
     config_path = "config/config.json"
     pid_path = "config/meshbot.pid"
+    
+    # Normalize command name if it uses a dash shortcut (e.g. -i -> i, -lc -> lc)
+    if cmds:
+        first_cmd = cmds[0].lower()
+        if first_cmd.startswith('-') and not first_cmd.startswith('--'):
+            stripped = first_cmd[1:]
+            if stripped in ("i", "t", "m", "ch", "lc", "rc", "chans"):
+                cmds[0] = stripped
     
     # Check for -pub / --pub flags and strip them for contacts commands
     show_pub = False
