@@ -48,6 +48,7 @@ class MeshBot:
         self.shutdown_event = None
         self._shutting_down = False
         self.ipc_server = None
+        self.timezone = "UTC"
 
     def load_and_validate_config(self):
         """Load config.json and validate it against schema.json."""
@@ -148,8 +149,58 @@ class MeshBot:
             signal.signal(signal.SIGINT, handle_sig)
             signal.signal(signal.SIGTERM, handle_sig)
 
+    async def resolve_timezone(self):
+        cfg_tz = self.config.get("core", {}).get("timezone", "auto")
+        if cfg_tz == "auto" or not cfg_tz:
+            try:
+                def fetch_ip_tz():
+                    import urllib.request
+                    try:
+                        req = urllib.request.Request(
+                            "https://ipapi.co/timezone/",
+                            headers={"User-Agent": "MeshCore-bot/1.0"}
+                        )
+                        with urllib.request.urlopen(req, timeout=5) as response:
+                            return response.read().decode('utf-8').strip()
+                    except Exception:
+                        return None
+                detected = await asyncio.get_event_loop().run_in_executor(None, fetch_ip_tz)
+                if detected:
+                    from zoneinfo import ZoneInfo
+                    try:
+                        ZoneInfo(detected)
+                        self.timezone = detected
+                        logger.info(f"Automatically detected local timezone: {self.timezone}")
+                        return
+                    except Exception:
+                        pass
+            except Exception as e:
+                logger.debug(f"Failed to auto-detect timezone: {e}")
+                
+            # Fallback to system default
+            import datetime
+            system_tz = datetime.datetime.now().astimezone().tzinfo
+            if system_tz:
+                self.timezone = str(system_tz)
+            else:
+                self.timezone = "UTC"
+            logger.info(f"Using system default timezone: {self.timezone}")
+        else:
+            from zoneinfo import ZoneInfo
+            try:
+                ZoneInfo(cfg_tz)
+                self.timezone = cfg_tz
+                logger.info(f"Using configured timezone: {self.timezone}")
+            except Exception:
+                logger.warning(f"Configured timezone '{cfg_tz}' is invalid. Falling back to UTC.")
+                self.timezone = "UTC"
+
     async def main(self):
         logger.info("Starting MeshCore-bot Central Hub...")
+        
+        # Resolve timezone
+        await self.resolve_timezone()
+        self.scheduler.timezone = self.timezone
         
         # 1. Connect to hardware node
         try:

@@ -262,7 +262,8 @@ def configure_core(current_core):
     core_config = {
         "timeSyncInterval": current_core.get("timeSyncInterval", "0 0 * * *"),
         "shutdownTimeoutMs": current_core.get("shutdownTimeoutMs", 10000),
-        "ipcPort": current_core.get("ipcPort", 5002)
+        "ipcPort": current_core.get("ipcPort", 5002),
+        "timezone": current_core.get("timezone", "auto")
     }
     
     interval = input(f"Enter Time Sync Cron Interval [current: {core_config['timeSyncInterval']}]: ").strip()
@@ -276,6 +277,10 @@ def configure_core(current_core):
     ipc = input(f"Enter Local IPC Port [current: {core_config['ipcPort']}]: ").strip()
     if ipc.isdigit():
         core_config["ipcPort"] = int(ipc)
+        
+    tz = input(f"Enter Timezone (e.g. America/Chicago, UTC, or auto) [current: {core_config['timezone']}]: ").strip()
+    if tz:
+        core_config["timezone"] = tz
         
     return core_config
 
