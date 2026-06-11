@@ -690,6 +690,152 @@ def run_modules():
         print("-" * 50)
         for name, status in sorted(modules):
             print(f"{name:<25} | {status:<10}")
+def smart_merge_config(upstream, local):
+    """Recursively merge upstream configuration with local/user configuration.
+    
+    Rules:
+    - Dicts are recursively merged.
+    - Lists of primitives (e.g. channel strings) are merged via order-preserving union.
+    - The 'brokers' array is matched by the 'server' key:
+      - Domain names ending with letsmesh.net or meshmapper.net favor upstream parameters.
+      - Other servers favor local parameters.
+    - Primitives or mismatched types favor local parameters (preserving local overrides).
+    """
+    if isinstance(upstream, dict) and isinstance(local, dict):
+        res = dict(upstream)
+        for k, v in local.items():
+            if k in res:
+                res[k] = smart_merge_config(res[k], v)
+            else:
+                res[k] = v
+        return res
+    elif isinstance(upstream, list) and isinstance(local, list):
+        # Check if this list represents brokers
+        is_brokers = False
+        if (upstream and all(isinstance(x, dict) and "server" in x for x in upstream)) or \
+           (local and all(isinstance(x, dict) and "server" in x for x in local)):
+            is_brokers = True
+            
+        if is_brokers:
+            merged = []
+            upstream_map = {b.get("server"): b for b in upstream if isinstance(b, dict) and "server" in b}
+            local_map = {b.get("server"): b for b in local if isinstance(b, dict) and "server" in b}
+            
+            all_servers = []
+            for b in upstream:
+                if isinstance(b, dict) and "server" in b:
+                    s = b["server"]
+                    if s not in all_servers:
+                        all_servers.append(s)
+            for b in local:
+                if isinstance(b, dict) and "server" in b:
+                    s = b["server"]
+                    if s not in all_servers:
+                        all_servers.append(s)
+                        
+            for server in all_servers:
+                up_b = upstream_map.get(server)
+                loc_b = local_map.get(server)
+                
+                if up_b and loc_b:
+                    is_public = False
+                    if isinstance(server, str):
+                        srv_lower = server.lower()
+                        if srv_lower.endswith("letsmesh.net") or srv_lower.endswith("meshmapper.net"):
+                            is_public = True
+                    
+                    if is_public:
+                        merged_b = dict(loc_b)
+                        merged_b.update(up_b)
+                    else:
+                        merged_b = dict(up_b)
+                        merged_b.update(loc_b)
+                    merged.append(merged_b)
+                elif up_b:
+                    merged.append(up_b)
+                elif loc_b:
+                    merged.append(loc_b)
+            return merged
+        else:
+            merged_list = list(upstream)
+            for item in local:
+                if item not in merged_list:
+                    merged_list.append(item)
+            return merged_list
+    else:
+        return local
+
+def auto_merge_config_json():
+    """Attempt to resolve merge conflicts in config/config.json automatically."""
+    print("[Update] Attempting to automatically resolve conflicts in config/config.json...")
+    import subprocess
+    status_res = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True)
+    is_config_conflicted = False
+    for line in status_res.stdout.splitlines():
+        if "config/config.json" in line and any(line.startswith(x) for x in ("UU", "U", "AA", "DD", "AU", "UD", "DU")):
+            is_config_conflicted = True
+            break
+
+    if not is_config_conflicted:
+        print("[Update] config/config.json is not in a conflicted state.")
+        return False
+
+    try:
+        ours_res = subprocess.run(["git", "show", ":2:config/config.json"], capture_output=True, text=True, encoding="utf-8")
+        theirs_res = subprocess.run(["git", "show", ":3:config/config.json"], capture_output=True, text=True, encoding="utf-8")
+
+        if ours_res.returncode == 0 and theirs_res.returncode == 0:
+            upstream_cfg = json.loads(ours_res.stdout)
+            local_cfg = json.loads(theirs_res.stdout)
+
+            merged_cfg = smart_merge_config(upstream_cfg, local_cfg)
+
+            schema_path = "config/schema.json"
+            validation_ok = True
+            if os.path.exists(schema_path):
+                from core.validator import validate as validate_schema
+                try:
+                    with open(schema_path, 'r', encoding='utf-8') as f:
+                        schema = json.load(f)
+                    errors = validate_schema(schema, merged_cfg)
+                    if errors:
+                        print("[Warning] Merged config failed schema validation:")
+                        for err in errors:
+                            print(f"  - {err}")
+                        validation_ok = False
+                except Exception as ve:
+                    print(f"[Warning] Failed to validate merged configuration: {ve}")
+                    validation_ok = False
+
+            if validation_ok:
+                with open("config/config.json", "w", encoding="utf-8") as f:
+                    json.dump(merged_cfg, f, indent=2)
+
+                subprocess.run(["git", "add", "config/config.json"])
+                print("[Update] Automatically merged and resolved conflicts in config/config.json.")
+
+                status_res = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True)
+                remaining_conflicts = False
+                for line in status_res.stdout.splitlines():
+                    if any(line.startswith(x) for x in ("UU", "AA", "DD", "AU", "UD", "DU")):
+                        remaining_conflicts = True
+                        print(f"[Warning] Remaining conflicted file: {line}")
+
+                if not remaining_conflicts:
+                    subprocess.run(["git", "stash", "drop"])
+                    print("[Update] All conflicts resolved automatically.")
+                    return True
+                else:
+                    print("[Warning] config/config.json was resolved, but other conflicts remain.")
+                    return False
+            else:
+                print("[Error] Merged configuration is invalid. Leaving conflict markers for manual resolution.")
+        else:
+            print("[Error] Failed to retrieve conflicted versions of config.json from Git index.")
+    except Exception as e:
+        print(f"[Error] Failed to automatically resolve config conflict: {e}")
+
+    return False
 
 def run_update():
     print("==================================================")
@@ -731,6 +877,11 @@ def run_update():
             print("[Update] Restoring stashed local changes...")
             pop_res = subprocess.run(["git", "stash", "pop"], capture_output=True, text=True)
             print(pop_res.stdout)
+            if pop_res.returncode != 0:
+                resolved = auto_merge_config_json()
+                if not resolved:
+                    print("[Error] Failed to automatically resolve all merge conflicts. Please resolve manually.")
+                    return False
             
     except Exception as e:
         print(f"[Error] Exception occurred during Git pull: {e}")
