@@ -9,6 +9,7 @@ import base64
 from datetime import datetime, timezone
 from pathlib import Path
 from enum import Enum, Flag
+from meshcore import EventType
 
 logger = logging.getLogger("MQTTModule")
 
@@ -287,8 +288,8 @@ class Mqtt:
         
         presets = [
             # Mapping & Global Platforms
-            {"name": "Let's Mesh US Server", "server": "mqtt-us-v1.letsmesh.net", "port": 1883, "use_tls": False, "token_audience": "mqtt-us-v1.letsmesh.net"},
-            {"name": "Let's Mesh EU Server", "server": "mqtt-eu-v1.letsmesh.net", "port": 1883, "use_tls": False, "token_audience": "mqtt-eu-v1.letsmesh.net"},
+            {"name": "Let's Mesh US Server", "server": "mqtt-us-v1.letsmesh.net", "port": 443, "use_tls": True, "use_ws": True, "token_audience": "mqtt-us-v1.letsmesh.net"},
+            {"name": "Let's Mesh EU Server", "server": "mqtt-eu-v1.letsmesh.net", "port": 443, "use_tls": True, "use_ws": True, "token_audience": "mqtt-eu-v1.letsmesh.net"},
             {"name": "MeshMapper", "server": "mqtt.meshmapper.net", "port": 443, "use_tls": True, "use_ws": True, "token_audience": "mqtt.meshmapper.net"},
             {"name": "Waev", "server": "mqtt.waev.app", "port": 8883, "use_tls": True},
             {"name": "Meshomatic", "server": "mqtt.meshomatic.net", "port": 1883, "use_tls": False},
@@ -495,7 +496,8 @@ class Mqtt:
         if self.unschedule_status: self.unschedule_status()
         
         # Disconnect MQTT brokers
-        for broker_num, client_info in enumerate(self.mqtt_clients, 1):
+        for client_info in self.mqtt_clients:
+            broker_num = client_info["broker_num"]
             client = client_info.get("client")
             if client:
                 try:
@@ -926,7 +928,8 @@ class Mqtt:
 
     async def _connect_mqtt(self):
         # Clean up any existing brokers
-        for broker_num, client_info in enumerate(self.mqtt_clients, 1):
+        for client_info in self.mqtt_clients:
+            broker_num = client_info["broker_num"]
             client = client_info.get("client")
             if client:
                 try:
@@ -956,8 +959,8 @@ class Mqtt:
                 client_id = f"meshbot_{self.device_public_key or 'device'}"
                 if idx > 1:
                     client_id += f"_{idx}"
-                    
-                client = mqtt.Client(client_id=client_id, clean_session=True)
+                transport = "websockets" if b_cfg.get("use_ws", False) else "tcp"
+                client = mqtt.Client(client_id=client_id, clean_session=True, transport=transport)
                 client.reconnect_delay_set(min_delay=1, max_delay=120)
                 client.user_data_set({"broker_num": idx})
                 
@@ -1037,7 +1040,9 @@ class Mqtt:
         if not status_topic:
             return
             
-        client_info = self.mqtt_clients[broker_num - 1]
+        client_info = self._get_client_info(broker_num)
+        if not client_info:
+            return
         client = client_info["client"]
         
         # Gather battery, neighbors, uptime details from cache
@@ -1150,6 +1155,12 @@ class Mqtt:
         logger.error(f"[{self.name}] Could not generate JWT for broker {broker_num}. Local libraries or keys missing.")
         return ""
 
+    def _get_client_info(self, broker_num: int) -> dict:
+        for c in self.mqtt_clients:
+            if c["broker_num"] == broker_num:
+                return c
+        return None
+
     # ==============================================================================
     # MQTT Publishing & Topics
     # ==============================================================================
@@ -1158,7 +1169,8 @@ class Mqtt:
         if not MQTT_AVAILABLE or not self.mqtt_clients:
             return
             
-        for broker_num, client_info in enumerate(self.mqtt_clients, 1):
+        for client_info in self.mqtt_clients:
+            broker_num = client_info["broker_num"]
             client = client_info["client"]
             if not self.mqtt_connected.get(broker_num, False):
                 continue
@@ -1186,7 +1198,9 @@ class Mqtt:
 
     def get_topic(self, topic_type: str, broker_num: int) -> str:
         topic_type_upper = topic_type.upper()
-        client_info = self.mqtt_clients[broker_num - 1]
+        client_info = self._get_client_info(broker_num)
+        if not client_info:
+            return None
         b_cfg = client_info["config"]
         
         # Check broker-specific override topic
@@ -1212,7 +1226,9 @@ class Mqtt:
         if not template:
             return template
             
-        client_info = self.mqtt_clients[broker_num - 1]
+        client_info = self._get_client_info(broker_num)
+        if not client_info:
+            return template
         b_cfg = client_info["config"]
         
         iata = b_cfg.get("iata") or self.config.get("iata", "LOC")
@@ -1235,7 +1251,8 @@ class Mqtt:
         # Sync latest details from state cache
         await self._sync_device_info()
         
-        for broker_num, client_info in enumerate(self.mqtt_clients, 1):
+        for client_info in self.mqtt_clients:
+            broker_num = client_info["broker_num"]
             if self.mqtt_connected.get(broker_num, False):
                 await self._publish_status_online(broker_num)
 
@@ -1245,7 +1262,8 @@ class Mqtt:
             return
             
         current_time = time.time()
-        for idx, client_info in enumerate(self.mqtt_clients, 1):
+        for client_info in self.mqtt_clients:
+            idx = client_info["broker_num"]
             b_cfg = client_info["config"]
             if not b_cfg.get("token_audience"):
                 continue
