@@ -145,7 +145,7 @@ class Autoresponce:
             asyncio.create_task(self._send_reply(sender, target_idx))
 
     async def _send_reply(self, recipient, channel_idx):
-        reply = f"@{recipient} ACK"
+        reply = f"@[{recipient}] ACK"
         logger.info(f"[{self.name}] Replying on channel {channel_idx}: {reply}")
         res = await self.api.bot.connection_manager.execute(["chan", str(channel_idx), reply])
         logger.info(f"[{self.name}] Reply response: {res}")
