@@ -13,7 +13,7 @@
     "ipcPort": 5002
   },
   "modules": {
-    "test_ack": {
+    "autoresponce": {
       "enabled": true,
       "channels": [
         "#test",

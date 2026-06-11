@@ -2,15 +2,15 @@ import logging
 import asyncio
 import re
 
-logger = logging.getLogger("TestAckModule")
+logger = logging.getLogger("AutoresponceModule")
 
-class TestAck:
+class Autoresponce:
     def __init__(self):
-        self.name = "test_ack"
+        self.name = "autoresponce"
         self.api = None
         self.config = {}
         
-        # Validation schema for config.json under modules.test_ack
+        # Validation schema for config.json under modules.autoresponce
         self.config_schema = {
             "type": "object",
             "properties": {
@@ -28,16 +28,16 @@ class TestAck:
 
     def run_config(self, current_config):
         """
-        Interactive configuration wizard for the TestAck module.
+        Interactive configuration wizard for the Autoresponce module.
         Prompts the user for key settings.
         """
         config = dict(current_config) if current_config else {}
         
-        print("\n--- Configure TestAck Settings ---")
+        print("\n--- Configure Autoresponce Settings ---")
         
         # 1. Enabled
         current_enabled = config.get("enabled", True)
-        val = input(f"Enable TestAck Module? (y/n) [current: {'y' if current_enabled else 'n'}]: ").strip().lower()
+        val = input(f"Enable Autoresponce Module? (y/n) [current: {'y' if current_enabled else 'n'}]: ").strip().lower()
         if val:
             config["enabled"] = val in ("y", "yes", "true")
             

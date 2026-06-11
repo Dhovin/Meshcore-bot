@@ -1,11 +1,11 @@
 import unittest
 import asyncio
 from unittest.mock import MagicMock, AsyncMock, patch
-from modules.test_ack import TestAck
+from modules.autoresponce import Autoresponce
 
-class TestTestAckModule(unittest.TestCase):
+class TestAutoresponceModule(unittest.TestCase):
     def setUp(self):
-        self.module = TestAck()
+        self.module = Autoresponce()
         self.api = MagicMock()
         
         # Mock connection manager
