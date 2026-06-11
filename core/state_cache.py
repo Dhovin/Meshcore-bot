@@ -14,6 +14,10 @@ class StateCache:
             "radio_bw": None,
             "radio_sf": None,
             "radio_cr": None,
+            "battery_mv": None,
+            "uptime_secs": None,
+            "errors": None,
+            "queue_len": None,
             "noise_floor": None,
             "deviceName": None,
             "publicKey": None,
@@ -62,6 +66,14 @@ class StateCache:
             self._state["radio_sf"] = telemetry["radio_sf"]
         if "radio_cr" in telemetry:
             self._state["radio_cr"] = telemetry["radio_cr"]
+        if "battery_mv" in telemetry:
+            self._state["battery_mv"] = telemetry["battery_mv"]
+        if "uptime_secs" in telemetry:
+            self._state["uptime_secs"] = telemetry["uptime_secs"]
+        if "errors" in telemetry:
+            self._state["errors"] = telemetry["errors"]
+        if "queue_len" in telemetry:
+            self._state["queue_len"] = telemetry["queue_len"]
 
         # Parse device name and public key
         if "name" in telemetry:

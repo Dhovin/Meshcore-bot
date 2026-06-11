@@ -1479,13 +1479,19 @@ class ConnectionManager:
                 payload = core_res.payload
                 if "uptime_secs" in payload:
                     self.bot.state_cache.update("uptime", payload["uptime_secs"])
+                    self.bot.state_cache.update("uptime_secs", payload["uptime_secs"])
                 if "battery_mv" in payload:
                     mv = payload["battery_mv"]
+                    self.bot.state_cache.update("battery_mv", mv)
                     if mv > 1000: # It's in millivolts
                         pct = int(max(0, min(100, (mv - 3200) / 10)))
                     else: # Already a percentage
                         pct = max(0, min(100, mv))
                     self.bot.state_cache.update("battery", pct)
+                if "errors" in payload:
+                    self.bot.state_cache.update("errors", payload["errors"])
+                if "queue_len" in payload:
+                    self.bot.state_cache.update("queue_len", payload["queue_len"])
                     
             # Query Radio Stats (noise floor, airtime)
             radio_res = await self.mc.commands.get_stats_radio()

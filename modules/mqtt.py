@@ -1048,8 +1048,11 @@ class Mqtt:
         # Gather battery, neighbors, uptime details from cache
         state = self.api.get_state()
         
-        freq = state.get("radio_freq")
-        radio_val = str(freq) if freq is not None else "unknown"
+        freq = state.get("radio_freq") or 0
+        bw = state.get("radio_bw") or 0
+        sf = state.get("radio_sf") or 0
+        cr = state.get("radio_cr") or 0
+        radio_val = f"{freq},{bw},{sf},{cr}"
         
         status_payload = {
             "status": "online",
@@ -1057,10 +1060,12 @@ class Mqtt:
             "origin": self.device_name or "MeshCore Device",
             "origin_id": self.device_public_key.upper() if self.device_public_key else 'DEVICE',
             "firmware": state.get("fwVersion", "unknown"),
+            "firmware_version": state.get("fwVersion", "unknown"),
             "model": state.get("model", "unknown"),
             "battery": state.get("battery") if state.get("battery") is not None else 100,
             "neighbors": state.get("neighborCount", 0),
             "client": "meshcore-bot",
+            "client_version": "meshcore-bot",
             "radio": radio_val,
             "sf": state.get("radio_sf"),
             "bw": state.get("radio_bw"),
@@ -1068,6 +1073,22 @@ class Mqtt:
             "uptime": state.get("uptime"),
             "noise_floor": state.get("noise_floor")
         }
+        
+        # Add stats sub-object if core stats are available
+        stats_obj = {}
+        if state.get("uptime_secs") is not None:
+            stats_obj["uptime_secs"] = state.get("uptime_secs")
+        if state.get("battery_mv") is not None:
+            stats_obj["battery_mv"] = state.get("battery_mv")
+        if state.get("errors") is not None:
+            stats_obj["errors"] = state.get("errors")
+        if state.get("queue_len") is not None:
+            stats_obj["queue_len"] = state.get("queue_len")
+        if state.get("noise_floor") is not None:
+            stats_obj["noise_floor"] = state.get("noise_floor")
+            
+        if stats_obj:
+            status_payload["stats"] = stats_obj
         
         try:
             client.publish(status_topic, json.dumps(status_payload), qos=0, retain=True)
