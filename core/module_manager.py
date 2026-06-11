@@ -3,18 +3,38 @@ import sys
 import logging
 import asyncio
 import importlib.util
+import contextvars
 from core.validator import validate as validate_schema
 
 logger = logging.getLogger("ModuleManager")
+
+active_module_var = contextvars.ContextVar("active_module", default=None)
 
 class ModuleAPI:
     def __init__(self, module_name, bot):
         self.module_name = module_name
         self.bot = bot
+        # Ensure allowed channels registry is initialized for this module
+        self.bot.module_manager.module_channels.setdefault(self.module_name, set())
 
     def subscribe(self, event_name, callback):
-        """Subscribe to an event on the central Event Bus."""
-        return self.bot.event_bus.subscribe(event_name, callback)
+        """Subscribe to an event on the central Event Bus, wrapping it to run in the module's context."""
+        if asyncio.iscoroutinefunction(callback):
+            async def wrapped_async(*args, **kwargs):
+                token = active_module_var.set(self.module_name)
+                try:
+                    return await callback(*args, **kwargs)
+                finally:
+                    active_module_var.reset(token)
+            return self.bot.event_bus.subscribe(event_name, wrapped_async)
+        else:
+            def wrapped_sync(*args, **kwargs):
+                token = active_module_var.set(self.module_name)
+                try:
+                    return callback(*args, **kwargs)
+                finally:
+                    active_module_var.reset(token)
+            return self.bot.event_bus.subscribe(event_name, wrapped_sync)
 
     async def send(self, command_string):
         """
@@ -28,9 +48,49 @@ class ModuleAPI:
         """Retrieve a read-only deep-copied snapshot of the state cache."""
         return self.bot.state_cache.get_state()
 
-    def schedule_task(self, cron_expression, callback):
-        """Schedule a task on the central task scheduler."""
-        return self.bot.scheduler.schedule(cron_expression, callback, self.module_name)
+    def schedule_task(self, cron_expression, callback, timezone=None):
+        """Schedule a task on the central task scheduler, wrapping it to run in the module's context."""
+        if timezone is None:
+            # Check if the module instance has a 'timezone' attribute
+            module_instance = self.bot.module_manager.modules.get(self.module_name)
+            if module_instance and hasattr(module_instance, 'timezone'):
+                timezone = getattr(module_instance, 'timezone')
+
+        if asyncio.iscoroutinefunction(callback):
+            async def wrapped_async(*args, **kwargs):
+                token = active_module_var.set(self.module_name)
+                try:
+                    return await callback(*args, **kwargs)
+                finally:
+                    active_module_var.reset(token)
+            return self.bot.scheduler.schedule(cron_expression, wrapped_async, self.module_name, timezone=timezone)
+        else:
+            def wrapped_sync(*args, **kwargs):
+                token = active_module_var.set(self.module_name)
+                try:
+                    return callback(*args, **kwargs)
+                finally:
+                    active_module_var.reset(token)
+            return self.bot.scheduler.schedule(cron_expression, wrapped_sync, self.module_name, timezone=timezone)
+
+    def declare_channels(self, channels):
+        """
+        Declare the channels the module wants to use.
+        Accepts a channel name (string), index (integer), or a list/set/tuple of them.
+        """
+        if not isinstance(channels, (list, set, tuple)):
+            channels = [channels]
+        
+        allowed = self.bot.module_manager.module_channels.setdefault(self.module_name, set())
+        for ch in channels:
+            if ch is not None:
+                allowed.add(ch)
+                # If it's a string representation of an int, add it as int too
+                if isinstance(ch, str) and ch.isdigit():
+                    allowed.add(int(ch))
+                elif isinstance(ch, int):
+                    allowed.add(str(ch))
+        logger.info(f"Module '{self.module_name}' declared allowed channels: {list(allowed)}")
 
     async def request_channel(self, channel_name):
         """
@@ -42,10 +102,15 @@ class ModuleAPI:
             
         # If it's already an integer index
         if isinstance(channel_name, int):
+            self.declare_channels(channel_name)
             return channel_name
         if isinstance(channel_name, str) and channel_name.isdigit():
-            return int(channel_name)
+            idx = int(channel_name)
+            self.declare_channels(idx)
+            return idx
             
+        self.declare_channels(channel_name)
+
         # Ensure connection
         if not self.bot.connection_manager.isConnected or not self.bot.connection_manager.mc:
             logger.warning(f"Device not connected. Cannot request channel '{channel_name}'. Returning default index 0.")
@@ -60,7 +125,9 @@ class ModuleAPI:
         # 2. Check if the channel already exists
         for ch in channels:
             if ch and ch.get("channel_name") == channel_name:
-                return ch.get("channel_idx", 0)
+                idx = ch.get("channel_idx", 0)
+                self.declare_channels(idx)
+                return idx
                 
         # 3. Channel does not exist, find first empty channel slot
         empty_idx = None
@@ -81,6 +148,7 @@ class ModuleAPI:
             return 0
             
         logger.info(f"Successfully added channel '{channel_name}' at index {empty_idx}")
+        self.declare_channels(empty_idx)
         return empty_idx
 
     def _sanitize_command(self, cmd):
@@ -95,6 +163,7 @@ class ModuleManager:
     def __init__(self, bot):
         self.bot = bot
         self.modules = {}
+        self.module_channels = {}
 
     async def load_modules(self, modules_dir):
         """
@@ -114,7 +183,6 @@ class ModuleManager:
             full_path = os.path.abspath(os.path.join(resolved_base, file))
 
             # Directory traversal protection:
-            # Ensure the resolved module file resides strictly inside the modules directory.
             if not full_path.startswith(resolved_base):
                 logger.error(f"Traversal attempt blocked: {file}")
                 continue
@@ -127,12 +195,9 @@ class ModuleManager:
                 sys.modules[module_name] = module
                 spec.loader.exec_module(module)
 
-                # Look for default exported Class (or standard module class structure)
-                # Convention: a class named Module or named after the file in TitleCase
                 class_name = ''.join(x.title() for x in module_name.split('_'))
                 ModuleClass = getattr(module, class_name, None)
                 if not ModuleClass:
-                    # Fallback: check if there is a 'Module' class
                     ModuleClass = getattr(module, 'Module', None)
 
                 if not ModuleClass:
@@ -152,9 +217,13 @@ class ModuleManager:
 
                 # Initialize
                 logger.info(f"Initializing module: {instance.name}")
-                init_hook = instance.init(api, module_config)
-                if asyncio.iscoroutine(init_hook):
-                    await init_hook
+                token = active_module_var.set(instance.name)
+                try:
+                    init_hook = instance.init(api, module_config)
+                    if asyncio.iscoroutine(init_hook):
+                        await init_hook
+                finally:
+                    active_module_var.reset(token)
 
                 self.modules[instance.name] = instance
             except Exception as e:
@@ -165,9 +234,13 @@ class ModuleManager:
         for name, instance in self.modules.items():
             try:
                 logger.info(f"Starting module: {name}")
-                start_hook = instance.start()
-                if asyncio.iscoroutine(start_hook):
-                    await start_hook
+                token = active_module_var.set(name)
+                try:
+                    start_hook = instance.start()
+                    if asyncio.iscoroutine(start_hook):
+                        await start_hook
+                finally:
+                    active_module_var.reset(token)
             except Exception as e:
                 logger.error(f"Error starting module '{name}': {e}", exc_info=True)
 
@@ -178,12 +251,15 @@ class ModuleManager:
 
         for name, instance in self.modules.items():
             logger.info(f"Stopping module: {name}")
+            token = active_module_var.set(name)
             try:
                 stop_hook = instance.stop()
                 if asyncio.iscoroutine(stop_hook):
                     stop_tasks[name] = asyncio.create_task(stop_hook)
             except Exception as e:
                 logger.error(f"Error invoking stop hook for module '{name}': {e}", exc_info=True)
+            finally:
+                active_module_var.reset(token)
 
         if stop_tasks:
             try:
@@ -200,6 +276,51 @@ class ModuleManager:
                 logger.error(f"Error gathering module stop hooks: {e}", exc_info=True)
 
         logger.info("All modules stopped.")
+
+    def is_channel_allowed(self, module_name, channel_id):
+        """
+        Checks if the given module is allowed to access the channel (index or name).
+        """
+        allowed = self.module_channels.get(module_name)
+        if allowed is None:
+            return False
+            
+        if channel_id in allowed:
+            return True
+            
+        # Attempt to map string/int representations
+        if isinstance(channel_id, int):
+            if str(channel_id) in allowed:
+                return True
+        elif isinstance(channel_id, str):
+            if channel_id.isdigit() and int(channel_id) in allowed:
+                return True
+                
+        # Resolve via connection_manager channels cache
+        channels_cache = []
+        if self.bot.connection_manager and self.bot.connection_manager.mc:
+            channels_cache = getattr(self.bot.connection_manager.mc, 'channels', []) or []
+            
+        if isinstance(channel_id, str) and not channel_id.isdigit():
+            # channel_id is a name
+            for ch in channels_cache:
+                if ch and ch.get("channel_name") == channel_id:
+                    idx = ch.get("channel_idx")
+                    if idx in allowed or str(idx) in allowed:
+                        return True
+        else:
+            # channel_id is an index
+            try:
+                idx = int(channel_id)
+                for ch in channels_cache:
+                    if ch and ch.get("channel_idx") == idx:
+                        name = ch.get("channel_name")
+                        if name in allowed:
+                            return True
+            except (ValueError, TypeError):
+                pass
+                
+        return False
 
     def _validate_module_shape(self, instance, file_name):
         if not hasattr(instance, 'name') or not instance.name:
@@ -221,3 +342,4 @@ class ModuleManager:
                 raise ValueError(f"Configuration validation failed for module '{instance.name}':\n- " + "\n- ".join(errors))
 
         return module_config
+

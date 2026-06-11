@@ -476,6 +476,10 @@ class WeatherBot:
         if "meteoAlerts" in config:
             self.config_meteo_alerts.update(config["meteoAlerts"])
             
+        # Register requested channels with the main app
+        requested = list(self.channel_names.values())
+        api.declare_channels(requested)
+
         logger.info(f"[{self.name}] Initialized.")
 
     async def start(self):
@@ -1033,6 +1037,20 @@ class WeatherBot:
                 logger.error(f"[{self.name}] Error in active alerts loop: {e}", exc_info=True)
 
     async def send_weather(self):
+        from zoneinfo import ZoneInfo
+        from datetime import datetime
+        system_tz = datetime.now().astimezone().tzinfo
+        system_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        try:
+            local_time = datetime.now(ZoneInfo(self.timezone)).strftime("%Y-%m-%d %H:%M:%S")
+        except Exception:
+            local_time = "Unknown"
+        logger.info(
+            f"[{self.name}] Triggering scheduled daily forecast alert. "
+            f"Timezone Comparison -> System: {system_tz} (Time: {system_time}) | "
+            f"Actual Local: {self.timezone} (Time: {local_time})"
+        )
+
         logger.info(f"[{self.name}] Starting scheduled daily forecast alarms...")
         
         # 1. Main Channel Broadcast

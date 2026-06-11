@@ -69,7 +69,7 @@ class Scheduler:
             self._task_loop_handle.cancel()
             self._task_loop_handle = None
 
-    def schedule(self, cron_expression, callback, name='task'):
+    def schedule(self, cron_expression, callback, name='task', timezone=None):
         """
         Registers a callback to execute on a cron schedule.
         Returns a cancel callable.
@@ -90,15 +90,32 @@ class Scheduler:
         task_data = {
             "name": name,
             "cron_expression": cron_expression,
-            "callback": callback
+            "callback": callback,
+            "timezone": timezone
         }
 
         def match(date):
-            minute = date.minute
-            hour = date.hour
-            dom = date.day
-            month = date.month
-            dow = date.isoweekday() # 1 = Monday, 7 = Sunday
+            from zoneinfo import ZoneInfo
+            if timezone:
+                try:
+                    tz = ZoneInfo(timezone) if isinstance(timezone, str) else timezone
+                    # Convert naive date (system time) to system timezone-aware, then convert to target tz
+                    if date.tzinfo is None:
+                        system_now_aware = date.astimezone()
+                        local_date = system_now_aware.astimezone(tz)
+                    else:
+                        local_date = date.astimezone(tz)
+                except Exception as e:
+                    logger.error(f"Failed to convert date to timezone '{timezone}': {e}")
+                    local_date = date
+            else:
+                local_date = date
+
+            minute = local_date.minute
+            hour = local_date.hour
+            dom = local_date.day
+            month = local_date.month
+            dow = local_date.isoweekday() # 1 = Monday, 7 = Sunday
             
             # Normalize Sunday as both 0 and 7
             dow_val = 0 if dow == 7 else dow
@@ -148,6 +165,28 @@ class Scheduler:
         now = datetime.now()
         for task in list(self.tasks):
             if task["match"](now):
+                # Compare system timezone/time and actual local timezone/time
+                system_tz = datetime.now().astimezone().tzinfo
+                system_time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                
+                target_tz_str = "System Default"
+                local_time_str = system_time_str
+                
+                if task.get("timezone"):
+                    from zoneinfo import ZoneInfo
+                    try:
+                        tz = ZoneInfo(task["timezone"]) if isinstance(task["timezone"], str) else task["timezone"]
+                        target_tz_str = str(tz)
+                        local_time_str = datetime.now(tz).strftime("%Y-%m-%d %H:%M:%S")
+                    except Exception:
+                        pass
+                
+                logger.info(
+                    f"[Scheduler] Triggering task '{task['name']}' (Cron: '{task['cron_expression']}'). "
+                    f"Timezone Comparison -> System: {system_tz} (Time: {system_time_str}) | "
+                    f"Actual Local: {target_tz_str} (Time: {local_time_str})"
+                )
+                
                 try:
                     if asyncio.iscoroutinefunction(task["callback"]):
                         asyncio.create_task(self._safe_run_async(task["callback"], task["name"]))

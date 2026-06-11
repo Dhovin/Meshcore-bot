@@ -164,6 +164,57 @@ class ConnectionManager:
             cmd = cmd[1:]
         cmd = cmd.lower()
 
+        # Enforce module channel access restrictions if running in a module context
+        from core.module_manager import active_module_var
+        active_module = active_module_var.get(None)
+        if active_module:
+            is_allowed = True
+            denied_channel = None
+
+            if cmd in ("chan", "ch"):
+                if len(cmds) > 1:
+                    chan_id = cmds[1]
+                    if not self.bot.module_manager.is_channel_allowed(active_module, chan_id):
+                        is_allowed = False
+                        denied_channel = chan_id
+                else:
+                    is_allowed = False
+                    denied_channel = "unknown"
+            elif cmd in ("public", "dch"):
+                if not self.bot.module_manager.is_channel_allowed(active_module, 0):
+                    is_allowed = False
+                    denied_channel = "0 (Public)"
+            elif cmd == "get_channel":
+                if len(cmds) > 1:
+                    chan_id = cmds[1]
+                    if not self.bot.module_manager.is_channel_allowed(active_module, chan_id):
+                        is_allowed = False
+                        denied_channel = chan_id
+            elif cmd in ("set_channel", "add_channel"):
+                if cmd == "set_channel" and len(cmds) > 2:
+                    slot_or_name = cmds[1]
+                    new_name = cmds[2]
+                    # Allowed if either the slot/existing channel or the new name is allowed
+                    if not (self.bot.module_manager.is_channel_allowed(active_module, slot_or_name) or
+                            self.bot.module_manager.is_channel_allowed(active_module, new_name)):
+                        is_allowed = False
+                        denied_channel = f"{slot_or_name} -> {new_name}"
+                elif cmd == "add_channel" and len(cmds) > 1:
+                    new_name = cmds[1]
+                    if not self.bot.module_manager.is_channel_allowed(active_module, new_name):
+                        is_allowed = False
+                        denied_channel = new_name
+            elif cmd == "remove_channel":
+                if len(cmds) > 1:
+                    chan_id = cmds[1]
+                    if not self.bot.module_manager.is_channel_allowed(active_module, chan_id):
+                        is_allowed = False
+                        denied_channel = chan_id
+
+            if not is_allowed:
+                logger.warning(f"Access denied: Module '{active_module}' attempted to access unauthorized channel '{denied_channel}'.")
+                return {"error": f"Access denied: Module '{active_module}' is not authorized to use channel '{denied_channel}'."}
+
         try:
             if cmd in ("infos", "i", "query", "q", "ver", "v"):
                 await self.mc.commands.send_appstart()
