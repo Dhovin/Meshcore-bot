@@ -14,6 +14,7 @@ MeshCore-bot is a modular, secure, and cross-platform Python-based central hub f
 6. **Plugin System & Lifecycles**: Discovers, validates, and loads scripts from the `/modules` folder. Executes `init`, `start`, and `stop` lifecycle hooks.
 7. **Graceful Shutdown**: Intercepts `SIGINT`/`SIGTERM` to safely close connections and halt plugins (enforcing a strict 10-second stop timeout limit).
 8. **Command Validation**: Sanitizes command strings to block multi-line shell injections.
+9. **Persistent GPS Coordinates**: Saves `latitude` and `longitude` in the configuration, automatically pushing them to the hardware node upon connection to ensure advertisements always broadcast the correct location.
 
 ---
 
