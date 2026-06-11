@@ -51,6 +51,20 @@
         ],
         "messageTemplate": "{event} Alert for {region}\nEffective: {start} to {end}\nSeverity: {severity}\n{headline}"
       }
+    },
+    "mqtt": {
+      "enabled": true,
+      "verbose": true,
+      "debug": true,
+      "iata": "DFW",
+      "output_file": "",
+      "brokers": [
+        {
+          "server": "ntxmesh.dhovin.me",
+          "port": 1883,
+          "use_tls": false
+        }
+      ]
     }
   }
 }

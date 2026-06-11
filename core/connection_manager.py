@@ -1154,6 +1154,8 @@ class ConnectionManager:
         self.mc.subscribe(EventType.PATH_UPDATE, self._on_path_update)
         self.mc.subscribe(EventType.NEW_CONTACT, self._on_new_contact)
         self.mc.subscribe(EventType.DISCONNECTED, self._on_disconnect)
+        self.mc.subscribe(EventType.RX_LOG_DATA, self._on_rx_log_data)
+        self.mc.subscribe(EventType.RAW_DATA, self._on_raw_data)
 
     async def _run_handshake(self):
         # Establish background contact loading
@@ -1302,6 +1304,18 @@ class ConnectionManager:
             self.bot.loop.call_soon_threadsafe(self.bot.shutdown_event.set)
         except Exception as e:
             logger.error(f"Error handling disconnect event: {e}", exc_info=True)
+
+    def _on_rx_log_data(self, event):
+        try:
+            self.bot.event_bus.publish("rx_log_data", event.payload)
+        except Exception as e:
+            logger.error(f"Error handling RX log data event: {e}", exc_info=True)
+
+    def _on_raw_data(self, event):
+        try:
+            self.bot.event_bus.publish("raw_data", event.payload)
+        except Exception as e:
+            logger.error(f"Error handling raw data event: {e}", exc_info=True)
 
     def _get_channel_by_name(self, name):
         channels = getattr(self.mc, 'channels', [])

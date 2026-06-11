@@ -82,8 +82,8 @@ python3 -m venv "${VENV_DIR}"
 echo "[Install] Upgrading pip, setuptools, and wheel in virtual environment..."
 "${VENV_DIR}/bin/pip" install --upgrade pip setuptools wheel
 
-echo "[Install] Installing Python libraries (pyserial, bleak, meshcore, meshcore-cli, paho-mqtt) inside virtual environment..."
-"${VENV_DIR}/bin/pip" install pyserial bleak meshcore meshcore-cli paho-mqtt
+echo "[Install] Installing Python libraries (pyserial, bleak, meshcore, meshcore-cli, paho-mqtt, pynacl) inside virtual environment..."
+"${VENV_DIR}/bin/pip" install pyserial bleak meshcore meshcore-cli paho-mqtt pynacl
 
 # 4. Setup Project Configuration
 CONFIG_FILE="${REPO_DIR}/config/config.json"
