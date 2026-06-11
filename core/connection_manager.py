@@ -227,7 +227,7 @@ class ConnectionManager:
                 return res.payload
             elif cmd == "reboot":
                 res = await self.mc.commands.reboot()
-                return res.payload
+                return res.payload if res.payload else {"ok": True}
             elif cmd in ("sync_time", "clock sync", "st"):
                 res = await self.mc.commands.set_time(int(time.time()))
                 if res.type == EventType.ERROR:
@@ -366,14 +366,14 @@ class ConnectionManager:
                 res = await self.mc.commands.send_chan_msg(nb, text)
                 if res.type == EventType.ERROR:
                     return {"error": f"Error sending channel message: {res}"}
-                return res.payload
+                return res.payload if res.payload else {"ok": True}
             elif cmd in ("public", "dch"):
                 if len(cmds) < 2:
                     return {"error": "Usage: public <message>"}
                 res = await self.mc.commands.send_chan_msg(0, cmds[1])
                 if res.type == EventType.ERROR:
                     return {"error": f"Error sending public message: {res}"}
-                return res.payload
+                return res.payload if res.payload else {"ok": True}
             elif cmd in ("recv", "r"):
                 res = await self.mc.commands.get_msg()
                 return res.payload
@@ -496,17 +496,17 @@ class ConnectionManager:
                 res = await self.mc.commands.set_flood_scope(scope)
                 if res.type == EventType.ERROR:
                     return {"error": f"Failed to set scope: {res}"}
-                return res.payload
+                return res.payload if res.payload else {"ok": True}
             elif cmd in ("advert", "a"):
                 res = await self.mc.commands.send_advert()
                 if res.type == EventType.ERROR:
                     return {"error": f"Error sending advert: {res}"}
-                return res.payload
+                return res.payload if res.payload else {"ok": True}
             elif cmd in ("floodadv", "flood_advert"):
                 res = await self.mc.commands.send_advert(flood=True)
                 if res.type == EventType.ERROR:
                     return {"error": f"Error sending advert: {res}"}
-                return res.payload
+                return res.payload if res.payload else {"ok": True}
             elif cmd == "get":
                 if len(cmds) < 2:
                     return {"error": "Usage: get <param>"}
