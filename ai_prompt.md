@@ -104,4 +104,15 @@ Create the following layout:
 - **Autoresponse Module (`modules/autoresponce.py`)**:
   - Listen on `#test` and `#testing` channels.
   - Check incoming message payloads. If the sender is not the bot, the message is not a DM, and the text contains the word "test" (case-insensitive), reply with an acknowledgment message `@[Sender] ACK`.
+
+---
+
+### 10. Programming Best Practices (Efficiency & Security)
+- **Command Sanitization**: Validate all inputs to IPC and connection manager entry points. Sanitize all commands by stripping newlines, carriage returns, or control characters to prevent command injection.
+- **Directory Traversal Protection**: When dynamically loading module files or configurations, resolve absolute paths and verify that the resolved path strictly starts with the base workspace directory prefix.
+- **Sandboxed Context Isolation**: Secure access controls by tracking active module states using context variables (`contextvars`). Enforce channel permission checks prior to execution to prevent modules from using unauthorized channels.
+- **Fast-Path Synchronous Checks**: Perform lightweight, synchronous validation checks (such as checking if a pattern matches or if the message is a self-loop) prior to spawning asynchronous tasks to preserve event loop resources.
+- **Self-Aligning Ticks**: Implement scheduling loops using task sleep durations derived from current microsecond offsets rather than relying on constant-interval polling.
+- **Exception Resiliency**: Wrap all async task callbacks and Event Bus listeners in dedicated execution handlers that capture and log traceback details. This keeps the event loops running even when individual operations raise unhandled errors.
+- **Caching Net lookups**: Cache geocoding coordinates and forecast data in memory to reduce external network queries.
 ```
