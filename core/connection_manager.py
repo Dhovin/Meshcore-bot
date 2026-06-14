@@ -104,6 +104,12 @@ class ConnectionManager:
         if not self.mc:
             raise RuntimeError("Failed to create MeshCore connection instance.")
 
+        # Enable decryption of channel messages and automatic contact updates
+        if hasattr(self.mc, 'set_decrypt_channel_logs'):
+            self.mc.set_decrypt_channel_logs(True)
+        if hasattr(self.mc, 'auto_update_contacts'):
+            self.mc.auto_update_contacts = True
+
         # Bind event subscriptions
         self._subscribe_events()
 
@@ -1176,6 +1182,7 @@ class ConnectionManager:
 
     def _subscribe_events(self):
         # Native registrations
+        self.mc.subscribe(EventType.CONTACTS, self._on_contacts_update)
         self.mc.subscribe(EventType.CONTACT_MSG_RECV, self._on_private_message)
         self.mc.subscribe(EventType.CHANNEL_MSG_RECV, self._on_channel_message)
         self.mc.subscribe(EventType.ADVERTISEMENT, self._on_advertisement)
@@ -1292,6 +1299,42 @@ class ConnectionManager:
                     text_val = match.group(2)
                 else:
                     sender = "unknown"
+
+            # Attempt to resolve sender name from channels log if sender is currently unknown
+            if (not sender or sender == "unknown") and hasattr(self, 'mc') and self.mc:
+                logged = None
+                reader = getattr(self.mc, '_reader', None)
+                parser = getattr(reader, 'packet_parser', None) if reader else None
+                if parser and hasattr(parser, 'channels_log'):
+                    for entry in reversed(parser.channels_log):
+                        if (entry.get("sender_timestamp") == payload.get("sender_timestamp") and
+                            entry.get("message") == text_val):
+                            logged = entry
+                            break
+
+                if logged:
+                    # 1. Try transport_code matching
+                    transport_code = logged.get("transport_code")
+                    if transport_code:
+                        contact = self.mc.get_contact_by_key_prefix(transport_code)
+                        if contact:
+                            sender = contact.get("adv_name") or contact.get("name") or f"Unknown-{contact.get('public_key', '')[:6]}"
+                    
+                    # 2. Try path matching as fallback (first hop represents sender)
+                    if (not sender or sender == "unknown") and logged.get("path"):
+                        path_hash_size = logged.get("path_hash_size", 4)
+                        path_str = logged.get("path", "")
+                        if len(path_str) >= path_hash_size * 2:
+                            sender_prefix = path_str[:path_hash_size * 2]
+                            contact = self.mc.get_contact_by_key_prefix(sender_prefix)
+                            if contact:
+                                sender = contact.get("adv_name") or contact.get("name") or f"Unknown-{contact.get('public_key', '')[:6]}"
+                            else:
+                                sender = f"Unknown-{sender_prefix[:6]}"
+                    
+                    # 3. Fallback to Unknown-{transport_code[:6]} if transport_code is present but contact is unknown
+                    if (not sender or sender == "unknown") and transport_code:
+                        sender = f"Unknown-{transport_code[:6]}"
                     
             msg = {
                 "sender": sender,
@@ -1353,6 +1396,12 @@ class ConnectionManager:
             self._save_contacts()
         except Exception as e:
             logger.error(f"Error handling new contact event: {e}", exc_info=True)
+
+    def _on_contacts_update(self, event):
+        try:
+            self._save_contacts()
+        except Exception as e:
+            logger.error(f"Error handling contacts update event: {e}", exc_info=True)
 
     def _on_disconnect(self, event):
         try:
