@@ -58,15 +58,8 @@ class Autoresponce:
         self.config = config
         self.channels = config.get("channels", ["#test", "#testing"])
         
-        # Declare all possible channel string variations to the bot API
-        declared = []
-        for ch in self.channels:
-            declared.append(ch)
-            if ch.startswith("#"):
-                declared.append(ch[1:])
-            else:
-                declared.append(f"#{ch}")
-        self.api.declare_channels(declared)
+        # Declare only the exact channels to the bot API
+        self.api.declare_channels(self.channels)
         
         logger.info(f"[{self.name}] Initialized with channels: {self.channels}")
 
@@ -84,14 +77,6 @@ class Autoresponce:
                 idx = await self.api.request_channel(ch)
                 self.channel_indices[ch] = idx
                 logger.info(f"[{self.name}] Channel '{ch}' index: {idx}")
-                
-                # Request variant with/without '#' as well to keep them in allowed list and mapping
-                if ch.startswith("#"):
-                    idx_clean = await self.api.request_channel(ch[1:])
-                    self.channel_indices[ch[1:]] = idx_clean
-                else:
-                    idx_hash = await self.api.request_channel(f"#{ch}")
-                    self.channel_indices[f"#{ch}"] = idx_hash
             except Exception as e:
                 logger.error(f"[{self.name}] Failed to request channel '{ch}': {e}")
                 
