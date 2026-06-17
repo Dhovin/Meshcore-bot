@@ -20,6 +20,14 @@
         "#testing"
       ]
     },
+    "net_bot": {
+      "enabled": true,
+      "channel": "#net",
+      "day_of_week": "Tuesday",
+      "time": "19:00",
+      "keyword": "#checkin",
+      "state_file": "net_state.json"
+    },
     "template": {
       "enabled": true,
       "messagePrefix": "[MeshBot]",
